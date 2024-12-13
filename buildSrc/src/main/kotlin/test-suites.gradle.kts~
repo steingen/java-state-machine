@@ -1,0 +1,143 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
+plugins {
+    java
+    jacoco
+    `jvm-test-suite`
+    id("org.sonarqube")
+}
+
+configurations.all {
+    // Some libraries leak junit4 into the project.
+    // We don't want it to conflict with jUnit5 that we are using because the jUnit4/5 import statements
+    // are very confusing if you have them both in your project.
+    // Besides, if you use some jUnit4 annotations while your project uses jUnit5,
+    // your tests will fail with this exception:
+    // Caused by: org.gradle.api.tasks.testing.TestExecutionException:
+    //  No matching tests found in any candidate test task.
+    exclude(group = "junit", module = "junit")
+}
+
+dependencies {
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+}
+
+testing {
+    @Suppress("UnstableApiUsage")
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            testType.set(TestSuiteType.UNIT_TEST)
+
+            targets{
+                all {
+                    testTask.configure{
+                        finalizedBy(tasks.jacocoTestReport)
+                    }
+                }
+            }
+            sources {
+                java {
+                    setSrcDirs(listOf("src/test/unit-test/java"))
+                }
+            }
+        }
+        register<JvmTestSuite>("integrationTest") {
+            testType.set(TestSuiteType.INTEGRATION_TEST)
+
+            dependencies {
+                implementation(project())
+            }
+            targets {
+                all {
+                    testTask.configure {
+                        shouldRunAfter(test)
+                    }
+                }
+            }
+            sources {
+                java {
+                    setSrcDirs(listOf("src/test/integration-test/java"))
+                }
+                resources{
+                    srcDirs("src/test/integration-test/resources")
+                }
+            }
+        }
+
+        configureEach {
+            if (this is JvmTestSuite) {
+                useJUnitJupiter()
+            }
+        }
+    }
+}
+
+jacoco {
+    toolVersion = "0.8.12"
+    reportsDirectory.set(layout.buildDirectory.dir("reports/jacoco"))
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test) // tests are required to run before generating the report
+    reports {
+        xml.required.set(true)
+        csv.required.set(false)
+        html.required.set(true)
+    }
+}
+
+tasks.withType<Test> {
+    // Enables running of tests in parallel
+    // See: https://docs.gradle.org/current/userguide/performance.html#execute_tests_in_parallel
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+
+    testLogging {
+        events("PASSED", "FAILED", "SKIPPED")
+        showStackTraces = true
+        exceptionFormat = TestExceptionFormat.FULL
+    }
+
+    // Disable test reports. See https://docs.gradle.org/current/userguide/performance.html#disable_reports
+    reports {
+        html.required.set(true)
+        junitXml.required.set(false)
+    }
+}
+
+tasks.sonar {
+    dependsOn(tasks.jacocoTestReport)
+}
+
+
+sonar {
+    //The 'sonar'/'sonarqube' task runs the 'build' task behind the scenes (unless sonar.gradle.skipCompile is true,
+    // or you are using version 5 and above of the plugin),
+    // but without the 'test' and 'jacocoTestReport' tasks, so in order to see coverage reports,
+    // you have to explicitly run the 'jacocoTestReport' or 'test' tasks before running the 'sonar' task
+    // or add a dependency on the 'jacocoTestReport' for the 'sonar' task.
+    // If sonar.gradle.skipCompile is true, or you are using version 5 and above of the plugin (implicit compilation
+    // will be removed in version 5), then you have to compile your project first before running the sonar task.
+    // You do this using `gradle assemble sonar` and this is the recommended way of doing it
+    properties {
+        property("sonar.projectName", project.name)
+        property("sonar.projectKey", project.name)
+        property("sonar.organization", "kyosk-digital")
+        property("sonar.host.url", "https://sonarcloud.io")
+        property("sonar.language", "java")
+        property("sonar.coverage.jacoco.xmlReportPaths", file(layout.buildDirectory.dir("reports/jacoco/test/jacocoTestReport.xml")))
+        property("sonar.projectBaseDir", project.projectDir)
+    }
+}
+
+
+// this has to be here after the testing section otherwise it is not recognised
+configurations {
+    configurations.getByName("integrationTestImplementation").apply {
+        extendsFrom(configurations.compileOnly.get(), configurations.testImplementation.get())
+    }
+}
+
+
+tasks.named("check"){
+    dependsOn(testing.suites.named("integrationTest"))
+}
