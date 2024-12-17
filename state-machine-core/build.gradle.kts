@@ -25,14 +25,14 @@ publishing {
         project.shadow.component(publication)*/
     }
     repositories {
-        maven {
-            credentials {
-                username = "$usr"
-                password = "$pwd"
-            }
-
-            url = uri("https://maven.pkg.jetbrains.space/mycompany/p/projectkey/my-maven-repo")
-        }
+//        maven {
+//            credentials {
+//                username = "$usr"
+//                password = "$pwd"
+//            }
+//
+//            url = uri("https://maven.pkg.jetbrains.space/mycompany/p/projectkey/my-maven-repo")
+//        }
     }
 }
 
